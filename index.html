@@ -244,7 +244,7 @@
     color: var(--ink-soft);
   }
 
-  input, textarea {
+  input, textarea, select {
     font: inherit;
     font-size: 1rem;
     color: var(--ink);
@@ -259,13 +259,17 @@
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
   }
 
+  select {
+    padding: 10px 13px;
+  }
+
   textarea {
     min-height: 180px;
     resize: vertical;
     line-height: 1.4;
   }
 
-  input:focus, textarea:focus {
+  input:focus, textarea:focus, select:focus {
     outline: none;
     border-color: var(--purple);
     box-shadow: 0 0 0 4px var(--focus-ring);
@@ -437,6 +441,75 @@
 
   .report-toolbar input {
     flex: 1;
+  }
+
+  .report-toolbar-row2 {
+    display: flex;
+    gap: 10px;
+  }
+
+  .report-toolbar-row2 select {
+    flex: 1;
+    font-size: 0.85rem;
+  }
+
+  #adminNotesPanel,
+  #adminTimesheetsPanel {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .entry-card-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 2px;
+  }
+
+  .pay-summary {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--purple-dark);
+  }
+
+  .paid-badge {
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: var(--holiday-tint);
+    color: var(--holiday-ink);
+    border: 1px solid var(--holiday-border);
+  }
+
+  .paid-badge.is-paid {
+    background: var(--success-bg);
+    color: var(--success);
+    border-color: var(--success-border);
+  }
+
+  .mark-paid-btn {
+    align-self: flex-start;
+    font-family: "Public Sans", sans-serif;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--purple-dark);
+    background: transparent;
+    border: 1.5px solid var(--purple-dark);
+    border-radius: 9px;
+    padding: 6px 11px;
+    cursor: pointer;
+  }
+
+  .mark-paid-btn.is-paid {
+    color: var(--ink-soft);
+    border-color: var(--border);
   }
 
   .entry-list {
@@ -689,7 +762,7 @@
   </div>
   <p class="brand-name">Samaritan Care</p>
   <p class="brand-tagline">NDIS Registered Provider</p>
-  <h1 class="page-title">Support Worker Portal</h1>
+  <h1 class="page-title">Support Worker Shift Log</h1>
 </header>
 
 <main>
@@ -850,6 +923,18 @@
         <div class="report-toolbar">
           <input type="text" id="tsFilterInput" placeholder="Search staff or participant..." />
         </div>
+        <div class="report-toolbar-row2">
+          <select id="tsStatusFilter">
+            <option value="all">All statuses</option>
+            <option value="unpaid">Unpaid only</option>
+            <option value="paid">Paid only</option>
+          </select>
+          <select id="tsSortSelect">
+            <option value="newest">Newest first</option>
+            <option value="week-desc">Week starting (latest)</option>
+            <option value="week-asc">Week starting (earliest)</option>
+          </select>
+        </div>
         <button type="button" class="submit outline" id="exportAllTimesheetsBtn">Download all as one PDF</button>
         <div id="timesheetList" class="entry-list"></div>
       </div>
@@ -925,13 +1010,12 @@
     return { year: bits[0], monthIndex: bits[1] - 1, day: bits[2] };
   }
 
-  // Victorian (metropolitan) public holidays. Movable dates (Easter,
-  // King's Birthday, the Friday before the AFL Grand Final, Melbourne
-  // Cup Day) shift every year, so this list needs a manual top-up —
-  // check business.vic.gov.au/business-information/public-holidays
-  // each year for the year ahead. Melbourne Cup Day is metro-only;
-  // drop it if staff work regional Victoria on that date.
-  const VIC_PUBLIC_HOLIDAYS = {
+  // Fallback only, used until the live list loads (see refreshPublicHolidays
+  // below) or if that fetch fails — e.g. no network yet, or SCRIPT_URL isn't
+  // configured. The real, editable source of truth is the "Public Holidays"
+  // tab in the Google Sheet: update dates there each year, not here — see
+  // SETUP_GUIDE.md.
+  const FALLBACK_VIC_PUBLIC_HOLIDAYS = {
     "2026-01-01": "New Year's Day",
     "2026-01-26": "Australia Day",
     "2026-03-09": "Labour Day",
@@ -960,12 +1044,37 @@
     "2027-12-26": "Boxing Day",
     "2027-12-27": "Christmas Day (additional public holiday)",
     "2027-12-28": "Boxing Day (additional public holiday)"
-    // Add the Friday-before-Grand-Final date for 2027 once the AFL
-    // fixture is released — it wasn't set yet when this list was made.
   };
 
+  let vicPublicHolidays = FALLBACK_VIC_PUBLIC_HOLIDAYS;
+  const holidayRefreshCallbacks = [];
+
+  function onHolidaysUpdated(callback) {
+    holidayRefreshCallbacks.push(callback);
+  }
+
   function vicHolidayName(iso) {
-    return VIC_PUBLIC_HOLIDAYS[iso] || null;
+    return vicPublicHolidays[iso] || null;
+  }
+
+  // Public holiday dates aren't sensitive, so this loads straight away
+  // (no passcode, no need to wait for the admin view to unlock) — it just
+  // keeps the visual flag on this page in sync with whatever's currently
+  // in the Sheet's "Public Holidays" tab, without needing a code update
+  // here every year. If it fails for any reason, the fallback list above
+  // keeps the flagging working regardless.
+  async function refreshPublicHolidays() {
+    if (SCRIPT_URL.indexOf("http") !== 0) return;
+    try {
+      const response = await fetch(SCRIPT_URL + "?action=listHolidays");
+      const data = await response.json();
+      if (data.status === "ok" && data.holidays && Object.keys(data.holidays).length) {
+        vicPublicHolidays = data.holidays;
+        holidayRefreshCallbacks.forEach((callback) => callback());
+      }
+    } catch (err) {
+      // Offline, or the backend isn't reachable — keep using the fallback.
+    }
   }
 
   const form = document.getElementById("shiftForm");
@@ -988,6 +1097,8 @@
   dateField.value = todayIso();
   updateVisitDateHolidayNote();
   dateField.addEventListener("change", updateVisitDateHolidayNote);
+  onHolidaysUpdated(updateVisitDateHolidayNote);
+  refreshPublicHolidays();
 
   function showStatus(kind, message) {
     statusBox.textContent = message;
@@ -1165,6 +1276,7 @@
   });
 
   tsWeekStart.addEventListener("change", updateWeekDates);
+  onHolidaysUpdated(updateWeekDates);
 
   // Default to the Monday of the current week.
   tsWeekStart.value = mondayOf(todayIso());
@@ -1367,6 +1479,8 @@
   const adminNotesPanel = document.getElementById("adminNotesPanel");
   const adminTimesheetsPanel = document.getElementById("adminTimesheetsPanel");
   const tsFilterInput = document.getElementById("tsFilterInput");
+  const tsStatusFilter = document.getElementById("tsStatusFilter");
+  const tsSortSelect = document.getElementById("tsSortSelect");
   const timesheetListEl = document.getElementById("timesheetList");
   const exportAllTimesheetsBtn = document.getElementById("exportAllTimesheetsBtn");
 
@@ -1468,6 +1582,17 @@
 
   filterInput.addEventListener("input", applyFilter);
 
+  function formatGrossPay(value) {
+    if (value === "" || value == null) return "$0.00";
+    const num = Number(value);
+    if (!isNaN(num) && value !== true && value !== false) return "$" + num.toFixed(2);
+    return String(value); // e.g. "Rate not set — check Pay Rates tab"
+  }
+
+  function isTimesheetPaid(entry) {
+    return String(entry["Payment Status"] || "").toLowerCase() === "paid";
+  }
+
   function renderTimesheets(entries) {
     timesheetListEl.innerHTML = "";
     if (!entries.length) {
@@ -1475,6 +1600,7 @@
       return;
     }
     entries.forEach((entry) => {
+      const paid = isTimesheetPaid(entry);
       const card = document.createElement("div");
       card.className = "entry-card";
       card.innerHTML =
@@ -1486,29 +1612,89 @@
           ' (NDIS ' + escapeHtml(entry["Participant NDIS Number"]) + ")</div>" +
         '<div class="entry-worker">Invoice: ' + escapeHtml(entry["Invoice Number"]) + "</div>" +
         '<p class="entry-notes"><strong>Total hours: ' + escapeHtml(entry["Total Hours"]) + '</strong></p>' +
-        '<button type="button" class="pdf-btn">Download PDF</button>';
+        '<div class="entry-card-foot">' +
+          '<span class="pay-summary">Gross pay: ' + escapeHtml(formatGrossPay(entry["Gross Pay"])) + "</span>" +
+          '<span class="paid-badge' + (paid ? " is-paid" : "") + '">' + (paid ? "Paid" : "Unpaid") + "</span>" +
+        "</div>" +
+        '<div class="entry-card-foot">' +
+          '<button type="button" class="mark-paid-btn' + (paid ? " is-paid" : "") + '">' +
+            (paid ? "Mark as unpaid" : "Mark as paid") +
+          "</button>" +
+          '<button type="button" class="pdf-btn">Download PDF</button>' +
+        "</div>";
       card.querySelector(".pdf-btn").addEventListener("click", () => {
         const filename = "Timesheet_" + safeFileToken(entry["Staff Name"]) + "_" + safeFileToken(entry["Week Starting"]) + ".pdf";
         buildTimesheetsPdf([entry], filename);
+      });
+      card.querySelector(".mark-paid-btn").addEventListener("click", (event) => {
+        markTimesheetPaid(entry, !paid, event.currentTarget);
       });
       timesheetListEl.appendChild(card);
     });
   }
 
-  function applyTimesheetFilter() {
-    const term = tsFilterInput.value.trim().toLowerCase();
-    if (!term) {
-      renderTimesheets(allTimesheets);
-      return;
+  async function markTimesheetPaid(entry, paid, buttonEl) {
+    if (!sessionPasscode || !entry["Timesheet ID"]) return;
+    if (buttonEl) {
+      buttonEl.disabled = true;
+      buttonEl.textContent = paid ? "Marking as paid..." : "Marking as unpaid...";
     }
-    const filtered = allTimesheets.filter((entry) =>
-      String(entry["Staff Name"] || "").toLowerCase().includes(term) ||
-      String(entry["Participant Name"] || "").toLowerCase().includes(term)
-    );
-    renderTimesheets(filtered);
+    try {
+      await fetch(SCRIPT_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({
+          formType: "markTimesheetPaid",
+          passcode: sessionPasscode,
+          timesheetId: entry["Timesheet ID"],
+          paid: paid,
+        }),
+        mode: "no-cors",
+      });
+      entry["Payment Status"] = paid ? "Paid" : "Unpaid";
+      applyTimesheetFilter();
+    } catch (err) {
+      if (buttonEl) {
+        buttonEl.disabled = false;
+        buttonEl.textContent = paid ? "Mark as paid" : "Mark as unpaid";
+      }
+      showAdminStatus("error", "Couldn't update payment status — check your connection.");
+    }
+  }
+
+  function getFilteredSortedTimesheets() {
+    const term = tsFilterInput.value.trim().toLowerCase();
+    const status = tsStatusFilter.value;
+    const sort = tsSortSelect.value;
+
+    let filtered = allTimesheets.filter((entry) => {
+      const matchesTerm = !term ||
+        String(entry["Staff Name"] || "").toLowerCase().includes(term) ||
+        String(entry["Participant Name"] || "").toLowerCase().includes(term);
+      const paid = isTimesheetPaid(entry);
+      const matchesStatus = status === "all" || (status === "paid" ? paid : !paid);
+      return matchesTerm && matchesStatus;
+    });
+
+    filtered = filtered.slice();
+    if (sort === "week-desc") {
+      filtered.sort((a, b) => String(b["Week Starting"] || "").localeCompare(String(a["Week Starting"] || "")));
+    } else if (sort === "week-asc") {
+      filtered.sort((a, b) => String(a["Week Starting"] || "").localeCompare(String(b["Week Starting"] || "")));
+    } else {
+      filtered.sort((a, b) => String(b["Timestamp"] || "").localeCompare(String(a["Timestamp"] || "")));
+    }
+
+    return filtered;
+  }
+
+  function applyTimesheetFilter() {
+    renderTimesheets(getFilteredSortedTimesheets());
   }
 
   tsFilterInput.addEventListener("input", applyTimesheetFilter);
+  tsStatusFilter.addEventListener("change", applyTimesheetFilter);
+  tsSortSelect.addEventListener("change", applyTimesheetFilter);
 
   unlockBtn.addEventListener("click", async () => {
     const code = passcodeInput.value.trim();
@@ -1530,7 +1716,7 @@
       reportPanel.hidden = false;
       showAdminSubtab("notes");
       renderEntries(allEntries);
-      renderTimesheets(allTimesheets);
+      applyTimesheetFilter();
     } catch (err) {
       showAdminStatus("error", err.message || "Incorrect passcode.");
     } finally {
@@ -1573,6 +1759,8 @@
     adminStatus.className = "status";
     filterInput.value = "";
     tsFilterInput.value = "";
+    tsStatusFilter.value = "all";
+    tsSortSelect.value = "newest";
     reportPanel.hidden = true;
     lockScreen.hidden = false;
   });
@@ -1593,12 +1781,7 @@
   });
 
   exportAllTimesheetsBtn.addEventListener("click", () => {
-    const term = tsFilterInput.value.trim().toLowerCase();
-    const entries = term
-      ? allTimesheets.filter((entry) =>
-          String(entry["Staff Name"] || "").toLowerCase().includes(term) ||
-          String(entry["Participant Name"] || "").toLowerCase().includes(term))
-      : allTimesheets;
+    const entries = getFilteredSortedTimesheets();
     if (!entries.length) {
       showAdminStatus("error", "There are no timesheets to export.");
       return;
@@ -1762,8 +1945,15 @@
       doc.setFontSize(11.5);
       doc.setTextColor(61, 27, 87);
       doc.text("Total hours: " + String(entry["Total Hours"] || "0"), marginX, y);
+      y += 18;
+      doc.text("Gross pay: " + formatGrossPay(entry["Gross Pay"]), marginX, y);
+      y += 18;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.setTextColor(90, 80, 100);
+      doc.text("Payment status: " + (isTimesheetPaid(entry) ? "Paid" : "Unpaid"), marginX, y);
 
-      y += 34;
+      y += 30;
       doc.setFont("helvetica", "bold");
       doc.setFontSize(9.5);
       doc.setTextColor(90, 80, 100);
