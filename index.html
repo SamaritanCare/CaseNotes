@@ -28,6 +28,9 @@
     --success-border: #B9E2C9;
     --danger: #B23A22;
     --danger-bg: #FBEAE5;
+    --holiday-tint: #FDF0D5;
+    --holiday-border: #EECB8A;
+    --holiday-ink: #8A5A00;
     --shadow: rgba(63, 27, 90, 0.14);
     --focus-ring: rgba(126, 58, 168, 0.35);
   }
@@ -49,6 +52,9 @@
       --success-border: #2E5940;
       --danger: #E2846C;
       --danger-bg: #3A241E;
+      --holiday-tint: #3D2E14;
+      --holiday-border: #6B5322;
+      --holiday-ink: #E8C878;
       --shadow: rgba(0, 0, 0, 0.45);
       --focus-ring: rgba(183, 132, 224, 0.4);
     }
@@ -70,6 +76,9 @@
     --success-border: #2E5940;
     --danger: #E2846C;
     --danger-bg: #3A241E;
+    --holiday-tint: #3D2E14;
+    --holiday-border: #6B5322;
+    --holiday-ink: #E8C878;
     --shadow: rgba(0, 0, 0, 0.45);
     --focus-ring: rgba(183, 132, 224, 0.4);
   }
@@ -244,6 +253,9 @@
     border-radius: 12px;
     padding: 12px 13px;
     width: 100%;
+    min-width: 0; /* a native date/time input's own intrinsic content size can
+                     otherwise beat width:100% as a flex child and overflow
+                     the field, especially on mobile browsers */
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
   }
 
@@ -261,6 +273,27 @@
 
   input:invalid.touched {
     border-color: var(--danger);
+  }
+
+  /* Safari/iOS applies its own chrome to date & time inputs (different
+     height, background and padding) unless appearance is reset, which is
+     what made these fields look oversized and inconsistent next to plain
+     text fields. Resetting it hands all the visual styling above back to
+     us, same as any other field. */
+  input[type="date"],
+  input[type="time"] {
+    appearance: none;
+    -webkit-appearance: none;
+  }
+
+  .holiday-note {
+    margin: 0;
+    font-size: 0.8rem;
+    color: var(--holiday-ink);
+    background: var(--holiday-tint);
+    border: 1px solid var(--holiday-border);
+    border-radius: 10px;
+    padding: 8px 11px;
   }
 
   hr.div {
@@ -506,6 +539,10 @@
     color: var(--purple-dark);
   }
 
+  .subtabs .tab-btn.active {
+    color: #FFFFFF;
+  }
+
   .week-fields-row {
     display: flex;
     gap: 12px;
@@ -524,26 +561,27 @@
 
   table.week-table {
     width: 100%;
-    min-width: 380px;
+    min-width: 300px;
     border-collapse: collapse;
-    font-size: 0.8rem;
+    font-size: 0.76rem;
+    table-layout: fixed;
   }
 
   .week-table th {
     font-family: "Baloo 2", sans-serif;
     font-weight: 600;
-    font-size: 0.68rem;
+    font-size: 0.64rem;
     text-transform: uppercase;
-    letter-spacing: 0.4px;
+    letter-spacing: 0.3px;
     color: var(--purple-dark);
     background: var(--surface-alt);
-    padding: 8px 6px;
+    padding: 7px 3px;
     text-align: center;
     border-bottom: 1px solid var(--border);
   }
 
   .week-table td {
-    padding: 6px;
+    padding: 5px 3px;
     text-align: center;
     border-bottom: 1px solid var(--border);
   }
@@ -552,31 +590,47 @@
     border-bottom: none;
   }
 
+  .week-table tr.is-holiday td {
+    background: var(--holiday-tint);
+  }
+
   .week-table td.day-cell {
     text-align: left;
     font-weight: 700;
     color: var(--ink);
-    padding-left: 10px;
+    padding-left: 8px;
     white-space: nowrap;
+    width: 15%;
   }
 
   .week-table td.date-cell {
     color: var(--ink-soft);
-    font-size: 0.76rem;
+    font-size: 0.7rem;
     white-space: nowrap;
+    width: 17%;
   }
 
   .week-table td.hours-cell {
     font-weight: 700;
     color: var(--purple-dark);
     white-space: nowrap;
+    width: 14%;
   }
 
   .week-table input[type="time"] {
-    padding: 6px 4px;
-    font-size: 0.78rem;
+    padding: 4px 2px;
+    font-size: 0.68rem;
     border-radius: 8px;
-    min-width: 82px;
+    width: 100%;
+    min-width: 0;
+    text-align: center;
+  }
+
+  /* Chrome/Android draws a clock icon inside the control; shrink it rather
+     than removing it, so the field keeps its tap affordance in less space. */
+  .week-table input[type="time"]::-webkit-calendar-picker-indicator {
+    padding: 2px;
+    margin-left: 1px;
   }
 
   .week-total {
@@ -635,7 +689,7 @@
   </div>
   <p class="brand-name">Samaritan Care</p>
   <p class="brand-tagline">NDIS Registered Provider</p>
-  <h1 class="page-title">Support Worker Shift Log</h1>
+  <h1 class="page-title">Support Worker Portal</h1>
 </header>
 
 <main>
@@ -663,6 +717,7 @@
       <div class="field">
         <label for="visitDate">Date <span class="required-mark">*</span></label>
         <input type="date" id="visitDate" name="visitDate" required />
+        <p class="holiday-note" id="visitDateHolidayNote" hidden></p>
       </div>
     </fieldset>
 
@@ -733,6 +788,7 @@
         <span>Total hours this week</span>
         <span id="weekTotalHours">0</span>
       </div>
+      <p class="holiday-note" id="weekHolidayNote" hidden></p>
     </fieldset>
 
     <hr class="div" />
@@ -837,14 +893,101 @@
     return parts[2] + "/" + parts[1] + "/" + parts[0];
   }
 
+  // yyyy-mm-dd -> dd/mm (no year), for the compact weekly hours table.
+  function formatDateDM(iso) {
+    if (!iso) return "";
+    const parts = iso.split("-");
+    if (parts.length !== 3) return iso;
+    return parts[2] + "/" + parts[1];
+  }
+
+  // ------------------------------------------------------------------
+  // Local-calendar-date helpers. These deliberately never use
+  // toISOString() (or the single-argument `new Date("yyyy-mm-dd")`
+  // parser) to get or build a calendar-date string: both round-trip
+  // through UTC, which silently shifts the date by a day — or, if
+  // chained, by several — in any timezone ahead of UTC, which is every
+  // timezone in Australia. Everything below stays in local time.
+  // ------------------------------------------------------------------
+  function todayIso() {
+    const now = new Date();
+    return isoFromParts(now.getFullYear(), now.getMonth(), now.getDate());
+  }
+
+  function isoFromParts(year, monthIndex, day) {
+    const mm = String(monthIndex + 1).padStart(2, "0");
+    const dd = String(day).padStart(2, "0");
+    return year + "-" + mm + "-" + dd;
+  }
+
+  function parseIsoLocal(iso) {
+    const bits = iso.split("-").map(Number);
+    return { year: bits[0], monthIndex: bits[1] - 1, day: bits[2] };
+  }
+
+  // Victorian (metropolitan) public holidays. Movable dates (Easter,
+  // King's Birthday, the Friday before the AFL Grand Final, Melbourne
+  // Cup Day) shift every year, so this list needs a manual top-up —
+  // check business.vic.gov.au/business-information/public-holidays
+  // each year for the year ahead. Melbourne Cup Day is metro-only;
+  // drop it if staff work regional Victoria on that date.
+  const VIC_PUBLIC_HOLIDAYS = {
+    "2026-01-01": "New Year's Day",
+    "2026-01-26": "Australia Day",
+    "2026-03-09": "Labour Day",
+    "2026-04-03": "Good Friday",
+    "2026-04-04": "Saturday before Easter Sunday",
+    "2026-04-05": "Easter Sunday",
+    "2026-04-06": "Easter Monday",
+    "2026-04-25": "Anzac Day",
+    "2026-06-08": "King's Birthday",
+    "2026-09-25": "Friday before AFL Grand Final",
+    "2026-11-03": "Melbourne Cup Day",
+    "2026-12-25": "Christmas Day",
+    "2026-12-26": "Boxing Day",
+    "2026-12-28": "Boxing Day (additional public holiday)",
+    "2027-01-01": "New Year's Day",
+    "2027-01-26": "Australia Day",
+    "2027-03-08": "Labour Day",
+    "2027-03-26": "Good Friday",
+    "2027-03-27": "Saturday before Easter Sunday",
+    "2027-03-28": "Easter Sunday",
+    "2027-03-29": "Easter Monday",
+    "2027-04-25": "Anzac Day",
+    "2027-06-14": "King's Birthday",
+    "2027-11-02": "Melbourne Cup Day",
+    "2027-12-25": "Christmas Day",
+    "2027-12-26": "Boxing Day",
+    "2027-12-27": "Christmas Day (additional public holiday)",
+    "2027-12-28": "Boxing Day (additional public holiday)"
+    // Add the Friday-before-Grand-Final date for 2027 once the AFL
+    // fixture is released — it wasn't set yet when this list was made.
+  };
+
+  function vicHolidayName(iso) {
+    return VIC_PUBLIC_HOLIDAYS[iso] || null;
+  }
+
   const form = document.getElementById("shiftForm");
   const statusBox = document.getElementById("statusBox");
   const submitBtn = document.getElementById("submitBtn");
   const dateField = document.getElementById("visitDate");
+  const visitDateHolidayNote = document.getElementById("visitDateHolidayNote");
+
+  function updateVisitDateHolidayNote() {
+    const holiday = vicHolidayName(dateField.value);
+    if (holiday) {
+      visitDateHolidayNote.textContent = "Public holiday: " + holiday;
+      visitDateHolidayNote.hidden = false;
+    } else {
+      visitDateHolidayNote.hidden = true;
+    }
+  }
 
   // Default the date to today for convenience.
-  const today = new Date();
-  dateField.value = today.toISOString().slice(0, 10);
+  dateField.value = todayIso();
+  updateVisitDateHolidayNote();
+  dateField.addEventListener("change", updateVisitDateHolidayNote);
 
   function showStatus(kind, message) {
     statusBox.textContent = message;
@@ -915,6 +1058,7 @@
   const tsWeekStart = document.getElementById("tsWeekStart");
   const weekTableBody = document.getElementById("weekTableBody");
   const weekTotalHoursEl = document.getElementById("weekTotalHours");
+  const weekHolidayNote = document.getElementById("weekHolidayNote");
 
   function showTsStatus(kind, message) {
     tsStatusBox.textContent = message;
@@ -932,17 +1076,16 @@
   }
 
   function isoPlusDays(iso, days) {
-    const d = new Date(iso + "T00:00:00");
-    d.setDate(d.getDate() + days);
-    return d.toISOString().slice(0, 10);
+    const parts = parseIsoLocal(iso);
+    const d = new Date(parts.year, parts.monthIndex, parts.day + days);
+    return isoFromParts(d.getFullYear(), d.getMonth(), d.getDate());
   }
 
   function mondayOf(iso) {
-    const d = new Date(iso + "T00:00:00");
-    const dayNum = d.getDay(); // 0 = Sun ... 6 = Sat
+    const parts = parseIsoLocal(iso);
+    const dayNum = new Date(parts.year, parts.monthIndex, parts.day).getDay(); // 0 = Sun ... 6 = Sat, local
     const diff = (dayNum + 6) % 7; // days since Monday
-    d.setDate(d.getDate() - diff);
-    return d.toISOString().slice(0, 10);
+    return isoPlusDays(iso, -diff);
   }
 
   // Build the 7 day rows once; dates get filled in by updateWeekDates().
@@ -963,11 +1106,33 @@
     if (!tsWeekStart.value) return;
     const monday = mondayOf(tsWeekStart.value);
     if (monday !== tsWeekStart.value) tsWeekStart.value = monday;
+
+    const weekHolidays = [];
     dayRows.forEach((row, i) => {
       const iso = isoPlusDays(monday, i);
       row.dataset.iso = iso;
-      row.querySelector("[data-date-cell]").textContent = formatDateDMY(iso);
+      const dateCell = row.querySelector("[data-date-cell]");
+      dateCell.textContent = formatDateDM(iso);
+
+      const holiday = vicHolidayName(iso);
+      if (holiday) {
+        row.classList.add("is-holiday");
+        dateCell.title = formatDateDMY(iso) + " — " + holiday;
+        weekHolidays.push(DAY_LABELS[i] + " " + formatDateDM(iso) + " — " + holiday);
+      } else {
+        row.classList.remove("is-holiday");
+        dateCell.title = formatDateDMY(iso);
+      }
     });
+
+    if (weekHolidays.length) {
+      weekHolidayNote.textContent =
+        (weekHolidays.length > 1 ? "Public holidays this week: " : "Public holiday this week: ") +
+        weekHolidays.join(", ");
+      weekHolidayNote.hidden = false;
+    } else {
+      weekHolidayNote.hidden = true;
+    }
   }
 
   function recalcTotal() {
@@ -1002,7 +1167,7 @@
   tsWeekStart.addEventListener("change", updateWeekDates);
 
   // Default to the Monday of the current week.
-  tsWeekStart.value = mondayOf(new Date().toISOString().slice(0, 10));
+  tsWeekStart.value = mondayOf(todayIso());
   updateWeekDates();
 
   // --- Signature pad ---
@@ -1123,7 +1288,7 @@
       const keepStaff = payload.staffName;
       timesheetForm.reset();
       document.getElementById("tsStaffName").value = keepStaff;
-      tsWeekStart.value = mondayOf(new Date().toISOString().slice(0, 10));
+      tsWeekStart.value = mondayOf(todayIso());
       updateWeekDates();
       dayRows.forEach((row) => {
         row.dataset.hours = "0";
@@ -1423,7 +1588,7 @@
       showAdminStatus("error", "There are no entries to export.");
       return;
     }
-    const stamp = new Date().toISOString().slice(0, 10);
+    const stamp = todayIso();
     buildEntriesPdf(entries, "Samaritan-Care-Shift-Log-" + stamp + ".pdf");
   });
 
@@ -1438,7 +1603,7 @@
       showAdminStatus("error", "There are no timesheets to export.");
       return;
     }
-    const stamp = new Date().toISOString().slice(0, 10);
+    const stamp = todayIso();
     buildTimesheetsPdf(entries, "Samaritan-Care-Timesheets-" + stamp + ".pdf");
   });
 
